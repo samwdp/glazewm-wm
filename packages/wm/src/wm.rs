@@ -509,7 +509,7 @@ impl WindowManager {
           // In scrolling mode, maximising just expands the window width to
           // fill the viewport instead of converting it to a fullscreen
           // non-tiling window.
-          if let Ok(tiling_window) = window.as_tiling_window() {
+          if let Some(tiling_window) = window.as_tiling_window() {
             if let Some(ws) = tiling_window.workspace() {
               if ws.layout_mode() == LayoutMode::Scrolling {
                 return scrolling_set_maximized(tiling_window, &ws, state);
@@ -649,7 +649,7 @@ impl WindowManager {
         Ok(window) => {
           // In scrolling mode, toggle between full-viewport width and
           // the default 50 % width instead of entering fullscreen state.
-          if let Ok(tiling_window) = window.as_tiling_window() {
+          if let Some(tiling_window) = window.as_tiling_window() {
             if let Some(ws) = tiling_window.workspace() {
               if ws.layout_mode() == LayoutMode::Scrolling {
                 return scrolling_toggle_maximized(
