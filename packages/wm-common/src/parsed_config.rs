@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-  app_command::InvokeCommand, Color, LengthValue, OpacityValue, RectDelta,
+  app_command::InvokeCommand, Color, LayoutMode, LengthValue, OpacityValue,
+  RectDelta,
 };
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -93,6 +94,9 @@ pub struct GeneralConfig {
 
   /// Affects which windows get shown in the native Windows taskbar.
   pub show_all_in_taskbar: bool,
+
+  /// Default layout mode for all workspaces unless overridden per workspace.
+  pub default_layout: LayoutMode,
 }
 
 impl Default for GeneralConfig {
@@ -106,6 +110,7 @@ impl Default for GeneralConfig {
       config_reload_commands: vec![],
       hide_method: HideMethod::Cloak,
       show_all_in_taskbar: false,
+      default_layout: LayoutMode::Tiling,
     }
   }
 }
@@ -378,6 +383,10 @@ pub struct WorkspaceConfig {
 
   #[serde(default = "default_bool::<false>")]
   pub keep_alive: bool,
+
+  /// Layout mode for this workspace. Overrides `general.default_layout`.
+  #[serde(default)]
+  pub layout: Option<LayoutMode>,
 }
 
 /// Helper function for setting a default value for a boolean field.

@@ -6,7 +6,7 @@ use tracing::Level;
 use uuid::Uuid;
 
 use crate::{
-  Delta, Direction, LengthValue, OpacityValue, TilingDirection,
+  Delta, Direction, LayoutMode, LengthValue, OpacityValue, TilingDirection,
 };
 
 const VERSION: &str = env!("VERSION_NUMBER");
@@ -150,6 +150,7 @@ pub enum SubscribableEvent {
   WindowUnmanaged,
   WorkspaceActivated,
   WorkspaceDeactivated,
+  WorkspaceLayoutChanged,
   WorkspaceUpdated,
   PauseChanged,
 }
@@ -230,6 +231,11 @@ pub enum InvokeCommand {
     #[clap(required = true)]
     tiling_direction: TilingDirection,
   },
+  SetLayoutMode {
+    #[clap(required = true)]
+    mode: LayoutMode,
+  },
+  ToggleLayoutMode,
   WmCycleFocus {
     #[clap(long, default_value_t = false)]
     omit_floating: bool,
