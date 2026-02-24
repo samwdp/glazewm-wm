@@ -3,8 +3,8 @@ use tokio::sync::mpsc::{self};
 use tracing::warn;
 use uuid::Uuid;
 use wm_common::{
-  FloatingStateConfig, FullscreenStateConfig, InvokeCommand, LengthValue,
-  RectDelta, TitleBarVisibility, WindowState, WmEvent,
+  FloatingStateConfig, FullscreenStateConfig, InvokeCommand, LayoutMode,
+  LengthValue, RectDelta, TitleBarVisibility, WindowState, WmEvent,
 };
 use wm_platform::PlatformEvent;
 
@@ -25,7 +25,8 @@ use crate::{
       update_window_state, WindowPositionTarget,
     },
     workspace::{
-      focus_workspace, move_workspace_in_direction, set_layout_mode,
+      focus_workspace, move_workspace_in_direction, scrolling_set_maximized,
+      scrolling_toggle_maximized, set_layout_mode,
       toggle_workspace_layout_mode,
     },
   },
@@ -505,6 +506,17 @@ impl WindowManager {
         shown_on_top,
       } => match subject_container.as_window_container() {
         Ok(window) => {
+          // In scrolling mode, maximising just expands the window width to
+          // fill the viewport instead of converting it to a fullscreen
+          // non-tiling window.
+          if let Ok(tiling_window) = window.as_tiling_window() {
+            if let Some(ws) = tiling_window.workspace() {
+              if ws.layout_mode() == LayoutMode::Scrolling {
+                return scrolling_set_maximized(tiling_window, &ws, state);
+              }
+            }
+          }
+
           let fullscreen_defaults =
             &config.value.window_behavior.state_defaults.fullscreen;
 
@@ -635,6 +647,20 @@ impl WindowManager {
         shown_on_top,
       } => match subject_container.as_window_container() {
         Ok(window) => {
+          // In scrolling mode, toggle between full-viewport width and
+          // the default 50 % width instead of entering fullscreen state.
+          if let Ok(tiling_window) = window.as_tiling_window() {
+            if let Some(ws) = tiling_window.workspace() {
+              if ws.layout_mode() == LayoutMode::Scrolling {
+                return scrolling_toggle_maximized(
+                  tiling_window,
+                  &ws,
+                  state,
+                );
+              }
+            }
+          }
+
           let fullscreen_defaults =
             &config.value.window_behavior.state_defaults.fullscreen;
 

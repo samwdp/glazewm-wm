@@ -1,10 +1,11 @@
 use wm_common::{LayoutMode, TilingDirection, WmEvent};
 use wm_scrolling::{
   tiling_sizes_for_scrolling, tiling_sizes_for_tiling, toggle_layout_mode,
+  DEFAULT_TILING_SIZE,
 };
 
 use crate::{
-  models::Workspace,
+  models::{TilingWindow, Workspace},
   traits::{
     CommonGetters, PositionGetters, TilingDirectionGetters,
     TilingSizeGetters,
@@ -129,5 +130,47 @@ pub fn update_scroll_offset(
 
   workspace.set_scroll_offset(new_offset);
 
+  Ok(())
+}
+
+/// Maximizes a window within its scrolling workspace by expanding its
+/// `tiling_size` to `1.0` (full viewport width).
+///
+/// Unlike the standard `SetFullscreen` command, this keeps the window as
+/// a `TilingWindow` in the flat scrolling list so that left/right
+/// navigation continues to work.
+pub fn scrolling_set_maximized(
+  window: &TilingWindow,
+  workspace: &Workspace,
+  state: &mut WmState,
+) -> anyhow::Result<()> {
+  window.set_tiling_size(1.0);
+  let index = window.index();
+  update_scroll_offset(workspace, index)?;
+  state
+    .pending_sync
+    .queue_containers_to_redraw(workspace.tiling_children());
+  Ok(())
+}
+
+/// Toggles a window between maximized (`tiling_size = 1.0`) and the
+/// default scrolling size (`DEFAULT_TILING_SIZE`) within its scrolling
+/// workspace.
+pub fn scrolling_toggle_maximized(
+  window: &TilingWindow,
+  workspace: &Workspace,
+  state: &mut WmState,
+) -> anyhow::Result<()> {
+  let new_size = if (window.tiling_size() - 1.0).abs() < f32::EPSILON {
+    DEFAULT_TILING_SIZE
+  } else {
+    1.0
+  };
+  window.set_tiling_size(new_size);
+  let index = window.index();
+  update_scroll_offset(workspace, index)?;
+  state
+    .pending_sync
+    .queue_containers_to_redraw(workspace.tiling_children());
   Ok(())
 }

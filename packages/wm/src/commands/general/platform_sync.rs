@@ -4,8 +4,8 @@ use anyhow::Context;
 use tokio::task;
 use tracing::{info, warn};
 use wm_common::{
-  CornerStyle, CursorJumpTrigger, DisplayState, HideMethod, OpacityValue,
-  UniqueExt, WindowEffectConfig, WindowState, WmEvent,
+  CornerStyle, CursorJumpTrigger, DisplayState, HideMethod, LayoutMode,
+  OpacityValue, UniqueExt, WindowEffectConfig, WindowState, WmEvent,
 };
 use wm_platform::{Platform, ZOrder};
 
@@ -260,6 +260,31 @@ fn redraw_containers(
     let rect = window
       .to_rect()?
       .apply_delta(&window.total_border_delta()?, None);
+
+    // In scrolling mode, clip the window rect to the monitor's working
+    // area to prevent overflow onto adjacent monitors. Windows that are
+    // scrolled out of view are clipped to a zero-area rect at the edge,
+    // which the OS renders as an invisible sliver rather than spilling
+    // onto the next screen.
+    let rect = if window.workspace().is_some_and(|ws| {
+      ws.layout_mode() == LayoutMode::Scrolling
+    }) {
+      if let Some(monitor) = window.monitor() {
+        if let Ok(working) = monitor.native().working_rect() {
+          let left = rect.left.max(working.left);
+          let right = rect.right.min(working.right).max(left);
+          let top = rect.top.max(working.top);
+          let bottom = rect.bottom.min(working.bottom).max(top);
+          wm_common::Rect::from_ltrb(left, top, right, bottom)
+        } else {
+          rect
+        }
+      } else {
+        rect
+      }
+    } else {
+      rect
+    };
 
     let is_visible = matches!(
       window.display_state(),
