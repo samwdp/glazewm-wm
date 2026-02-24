@@ -1,6 +1,7 @@
 use anyhow::Context;
 use tracing::info;
 use wm_common::{TilingDirection, WmEvent, WorkspaceConfig};
+use wm_scrolling::effective_layout_mode;
 
 use super::sort_workspaces;
 use crate::{
@@ -57,10 +58,16 @@ pub fn activate_workspace(
     TilingDirection::Horizontal
   };
 
+  let layout_mode = effective_layout_mode(
+    workspace_config.layout.clone(),
+    config.value.general.default_layout.clone(),
+  );
+
   let workspace = Workspace::new(
     workspace_config.clone(),
     config.value.gaps.clone(),
     tiling_direction,
+    layout_mode,
   );
 
   // Attach the created workspace to the specified monitor.

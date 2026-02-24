@@ -38,4 +38,5 @@ wm-common = { path = "../wm-common" }
 wm-cli = { path = "../wm-cli" }
 wm-platform = { path = "../wm-platform" }
 wm-ipc-client = { path = "../wm-ipc-client" }
+wm-scrolling = { path = "../wm-scrolling" }
 wm-macros.workspace = true

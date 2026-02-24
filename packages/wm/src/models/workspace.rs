@@ -7,8 +7,8 @@ use std::{
 use anyhow::Context;
 use uuid::Uuid;
 use wm_common::{
-  ContainerDto, GapsConfig, Rect, TilingDirection, WorkspaceConfig,
-  WorkspaceDto,
+  ContainerDto, GapsConfig, LayoutMode, Rect, TilingDirection,
+  WorkspaceConfig, WorkspaceDto,
 };
 
 use crate::{
@@ -32,6 +32,10 @@ struct WorkspaceInner {
   config: WorkspaceConfig,
   gaps_config: GapsConfig,
   tiling_direction: TilingDirection,
+  layout_mode: LayoutMode,
+  /// Horizontal scroll offset in logical pixels. Only used in
+  /// [`LayoutMode::Scrolling`] workspaces.
+  scroll_offset: i32,
 }
 
 impl Workspace {
@@ -39,6 +43,7 @@ impl Workspace {
     config: WorkspaceConfig,
     gaps_config: GapsConfig,
     tiling_direction: TilingDirection,
+    layout_mode: LayoutMode,
   ) -> Self {
     let workspace = WorkspaceInner {
       id: Uuid::new_v4(),
@@ -48,6 +53,8 @@ impl Workspace {
       config,
       gaps_config,
       tiling_direction,
+      layout_mode,
+      scroll_offset: 0,
     };
 
     Self(Rc::new(RefCell::new(workspace)))
@@ -75,6 +82,26 @@ impl Workspace {
     self.0.borrow_mut().gaps_config = gaps_config;
   }
 
+  /// Current layout mode of the workspace.
+  pub fn layout_mode(&self) -> LayoutMode {
+    self.0.borrow().layout_mode.clone()
+  }
+
+  /// Update the layout mode of the workspace.
+  pub fn set_layout_mode(&self, layout_mode: LayoutMode) {
+    self.0.borrow_mut().layout_mode = layout_mode;
+  }
+
+  /// Current horizontal scroll offset in logical pixels.
+  pub fn scroll_offset(&self) -> i32 {
+    self.0.borrow().scroll_offset
+  }
+
+  /// Update the horizontal scroll offset.
+  pub fn set_scroll_offset(&self, offset: i32) {
+    self.0.borrow_mut().scroll_offset = offset;
+  }
+
   pub fn to_dto(&self) -> anyhow::Result<ContainerDto> {
     let rect = self.to_rect()?;
     let config = self.config();
@@ -99,6 +126,8 @@ impl Workspace {
       x: rect.x(),
       y: rect.y(),
       tiling_direction: self.tiling_direction(),
+      layout_mode: self.layout_mode(),
+      scroll_offset: self.scroll_offset(),
     }))
   }
 }

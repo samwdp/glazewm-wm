@@ -29,6 +29,19 @@ macro_rules! impl_position_getters_as_resizable {
           TilingDirection::Horizontal => horizontal_gap,
         };
 
+        // Detect whether the parent is a scrolling workspace.
+        let scroll_offset = parent
+          .as_workspace()
+          .filter(|ws| {
+            ws.layout_mode() == wm_common::LayoutMode::Scrolling
+          })
+          .map_or(0, |ws| ws.scroll_offset());
+
+        let is_scrolling = scroll_offset != 0
+          || parent.as_workspace().is_some_and(|ws| {
+            ws.layout_mode() == wm_common::LayoutMode::Scrolling
+          });
+
         #[allow(
           clippy::cast_precision_loss,
           clippy::cast_possible_truncation,
@@ -45,13 +58,24 @@ macro_rules! impl_position_getters_as_resizable {
             (parent_rect.width(), height)
           }
           TilingDirection::Horizontal => {
-            let available_width = parent_rect.width()
-              - inner_gap * self.tiling_siblings().count() as i32;
+            if is_scrolling {
+              // In scrolling mode each window is an independent fraction
+              // of the viewport width; siblings do not shrink each other.
+              let width = wm_scrolling::window_width(
+                self.tiling_size(),
+                parent_rect.width(),
+              );
+              (width, parent_rect.height())
+            } else {
+              let available_width = parent_rect.width()
+                - inner_gap * self.tiling_siblings().count() as i32;
 
-            let width =
-              (available_width as f32 * self.tiling_size()).round() as i32;
+              let width =
+                (available_width as f32 * self.tiling_size()).round()
+                  as i32;
 
-            (width, parent_rect.height())
+              (width, parent_rect.height())
+            }
           }
         };
 
@@ -61,7 +85,11 @@ macro_rules! impl_position_getters_as_resizable {
             .filter_map(|sibling| sibling.as_tiling_container().ok());
 
           match prev_siblings.next() {
-            None => (parent_rect.x(), parent_rect.y()),
+            None => {
+              // First child: apply scroll offset if in scrolling mode.
+              let base_x = parent_rect.x() - scroll_offset;
+              (base_x, parent_rect.y())
+            }
             Some(sibling) => {
               let sibling_rect = sibling.to_rect()?;
 

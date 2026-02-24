@@ -382,6 +382,9 @@ impl IpcServer {
       WmEvent::WorkspaceUpdated { .. } => {
         SubscribableEvent::WorkspaceUpdated
       }
+      WmEvent::WorkspaceLayoutChanged { .. } => {
+        SubscribableEvent::WorkspaceLayoutChanged
+      }
       WmEvent::PauseChanged { .. } => SubscribableEvent::PauseChanged,
     };
 
