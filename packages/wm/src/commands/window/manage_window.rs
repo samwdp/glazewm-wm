@@ -1,19 +1,22 @@
 use anyhow::Context;
 use tracing::info;
 use wm_common::{
-  try_warn, LengthValue, RectDelta, WindowRuleEvent, WindowState, WmEvent,
+  try_warn, LayoutMode, LengthValue, RectDelta, WindowRuleEvent,
+  WindowState, WmEvent,
 };
 use wm_platform::NativeWindow;
+use wm_scrolling::DEFAULT_TILING_SIZE;
 
 use crate::{
   commands::{
     container::{attach_container, set_focused_descendant},
     window::run_window_rules,
+    workspace::update_scroll_offset,
   },
   models::{
     Container, Monitor, NonTilingWindow, TilingWindow, WindowContainer,
   },
-  traits::{CommonGetters, PositionGetters, WindowGetters},
+  traits::{CommonGetters, PositionGetters, TilingSizeGetters, WindowGetters},
   user_config::UserConfig,
   wm_state::WmState,
 };
@@ -173,6 +176,19 @@ fn create_window(
     Some(target_index),
   )?;
 
+  // In scrolling mode set the window's default width to 50 % of the
+  // viewport and update the viewport's scroll offset so the new window
+  // is fully visible.
+  if target_workspace.layout_mode() == LayoutMode::Scrolling {
+    if let WindowContainer::TilingWindow(ref tw) = window_container {
+      tw.set_tiling_size(DEFAULT_TILING_SIZE);
+
+      // Index of the new window among tiling children.
+      let new_index = tw.index();
+      update_scroll_offset(&target_workspace, new_index)?;
+    }
+  }
+
   // The OS might spawn the window on a different monitor to the target
   // parent, so adjustments might need to be made because of DPI.
   if nearest_monitor
@@ -234,7 +250,9 @@ fn window_state_to_create(
 ///
 /// Rules:
 /// - For non-tiling windows: Always append to the workspace.
-/// - For tiling windows:
+/// - For tiling windows in **scrolling** mode: Always insert directly into
+///   the workspace after the focused tiling window (or at the end).
+/// - For tiling windows in **tiling** mode:
 ///   1. Try to insert after the focused tiling window if one exists.
 ///   2. If a non-tiling window is focused, try to insert after the first
 ///      tiling window found.
@@ -251,9 +269,25 @@ fn insertion_target(
   let focused_workspace =
     focused_container.workspace().context("No workspace.")?;
 
-  // For tiling windows, try to find a suitable tiling window to insert
-  // next to.
   if *window_state == WindowState::Tiling {
+    // In scrolling mode always insert at workspace level, after the
+    // focused tiling window (or at the end).
+    if focused_workspace.layout_mode() == LayoutMode::Scrolling {
+      let target_index = match &focused_container {
+        Container::TilingWindow(tw)
+          if tw
+            .workspace()
+            .is_some_and(|ws| ws.id() == focused_workspace.id()) =>
+        {
+          tw.index() + 1
+        }
+        _ => focused_workspace.child_count(),
+      };
+      return Ok((focused_workspace.into(), target_index));
+    }
+
+    // Standard tiling mode: try to find a suitable tiling window to
+    // insert next to.
     let sibling = match focused_container {
       Container::TilingWindow(_) => Some(focused_container),
       _ => focused_workspace

@@ -24,7 +24,10 @@ use crate::{
       resize_window, set_window_position, set_window_size,
       update_window_state, WindowPositionTarget,
     },
-    workspace::{focus_workspace, move_workspace_in_direction},
+    workspace::{
+      focus_workspace, move_workspace_in_direction, set_layout_mode,
+      toggle_workspace_layout_mode,
+    },
   },
   events::{
     handle_display_settings_changed, handle_mouse_move,
@@ -694,6 +697,16 @@ impl WindowManager {
           config,
           tiling_direction,
         )
+      }
+      InvokeCommand::SetLayoutMode { mode } => {
+        let workspace =
+          subject_container.workspace().context("No workspace.")?;
+        set_layout_mode(workspace, mode.clone(), state)
+      }
+      InvokeCommand::ToggleLayoutMode => {
+        let workspace =
+          subject_container.workspace().context("No workspace.")?;
+        toggle_workspace_layout_mode(workspace, state)
       }
       InvokeCommand::WmCycleFocus {
         omit_floating,

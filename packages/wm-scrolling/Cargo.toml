@@ -1,0 +1,11 @@
+[package]
+name = "wm-scrolling"
+version = "0.0.0"
+edition = "2021"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+wm-common = { path = "../wm-common" }

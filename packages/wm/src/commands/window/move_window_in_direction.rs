@@ -1,11 +1,14 @@
 use anyhow::Context;
-use wm_common::{Direction, Rect, TilingDirection, WindowState};
+use wm_common::{Direction, LayoutMode, Rect, TilingDirection, WindowState};
 
 use crate::{
-  commands::container::{
-    flatten_child_split_containers, flatten_split_container,
-    move_container_within_tree, resize_tiling_container,
-    set_focused_descendant, wrap_in_split_container,
+  commands::{
+    container::{
+      flatten_child_split_containers, flatten_split_container,
+      move_container_within_tree, resize_tiling_container,
+      set_focused_descendant, wrap_in_split_container,
+    },
+    workspace::update_scroll_offset,
   },
   models::{
     DirectionContainer, Monitor, NonTilingWindow, SplitContainer,
@@ -53,6 +56,20 @@ fn move_tiling_window(
   state: &mut WmState,
   config: &UserConfig,
 ) -> anyhow::Result<()> {
+  // Scrolling-mode: swap within the flat workspace sibling list.
+  if let Some(ws) = window_to_move.workspace() {
+    if ws.layout_mode() == LayoutMode::Scrolling
+      && matches!(direction, Direction::Left | Direction::Right)
+    {
+      return move_tiling_window_scrolling(
+        window_to_move,
+        direction,
+        ws,
+        state,
+      );
+    }
+  }
+
   // Flatten the parent split container if it only contains the window.
   if let Some(split_parent) = window_to_move
     .parent()
@@ -139,6 +156,46 @@ fn tiling_sibling_in_direction(
       .next_siblings()
       .find_map(|sibling| sibling.as_tiling_container().ok()),
   }
+}
+
+/// Swaps a tiling window with its immediate left/right sibling inside a
+/// scrolling workspace, then updates the scroll offset.
+fn move_tiling_window_scrolling(
+  window_to_move: TilingWindow,
+  direction: &Direction,
+  workspace: crate::models::Workspace,
+  state: &mut WmState,
+) -> anyhow::Result<()> {
+  let parent = window_to_move.parent().context("No parent.")?;
+
+  let sibling = match direction {
+    Direction::Left => window_to_move
+      .prev_siblings()
+      .find_map(|s| s.as_tiling_container().ok()),
+    _ => window_to_move
+      .next_siblings()
+      .find_map(|s| s.as_tiling_container().ok()),
+  };
+
+  if let Some(sibling) = sibling {
+    let target_index = sibling.index();
+
+    move_container_within_tree(
+      &window_to_move.clone().into(),
+      &parent,
+      target_index,
+      state,
+    )?;
+
+    let new_index = window_to_move.index();
+    update_scroll_offset(&workspace, new_index)?;
+
+    state
+      .pending_sync
+      .queue_containers_to_redraw(workspace.tiling_children());
+  }
+
+  Ok(())
 }
 
 fn move_to_sibling_container(

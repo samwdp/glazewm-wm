@@ -2319,6 +2319,7 @@ dependencies = [
  "wm-ipc-client",
  "wm-macros",
  "wm-platform",
+ "wm-scrolling",
 ]
 
 [[package]]
@@ -2380,6 +2381,14 @@ dependencies = [
  "tracing",
  "windows",
  "windows-interface",
+ "wm-common",
+]
+
+[[package]]
+name = "wm-scrolling"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
  "wm-common",
 ]
 

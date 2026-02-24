@@ -1,8 +1,9 @@
 use anyhow::Context;
-use wm_common::{Direction, TilingDirection, WindowState};
+use wm_common::{Direction, LayoutMode, TilingDirection, WindowState};
 
 use super::set_focused_descendant;
 use crate::{
+  commands::workspace::update_scroll_offset,
   models::{Container, TilingContainer},
   traits::{CommonGetters, TilingDirectionGetters, WindowGetters},
   wm_state::WmState,
@@ -15,6 +16,21 @@ pub fn focus_in_direction(
 ) -> anyhow::Result<()> {
   let focus_target = match origin_container {
     Container::TilingWindow(_) => {
+      // Scrolling-mode shortcut: navigate flat sibling list horizontally.
+      let workspace = origin_container.workspace();
+      if let Some(ws) = &workspace {
+        if ws.layout_mode() == LayoutMode::Scrolling
+          && matches!(direction, Direction::Left | Direction::Right)
+        {
+          return focus_in_scrolling_workspace(
+            origin_container,
+            direction,
+            ws.clone(),
+            state,
+          );
+        }
+      }
+
       // If a suitable focus target isn't found in the current workspace,
       // attempt to find a workspace in the given direction.
       tiling_focus_target(origin_container, direction)?.map_or_else(
@@ -164,4 +180,38 @@ fn workspace_focus_target(
     .or(target_workspace.map(Into::into));
 
   Ok(focus_target)
+}
+
+/// Handles `focus --direction left/right` inside a scrolling workspace.
+///
+/// Navigates to the immediately adjacent tiling sibling within the flat
+/// workspace child list, then updates the viewport scroll offset so the
+/// newly focused window is fully visible.
+fn focus_in_scrolling_workspace(
+  origin_container: &Container,
+  direction: &Direction,
+  workspace: crate::models::Workspace,
+  state: &mut WmState,
+) -> anyhow::Result<()> {
+  let target = match direction {
+    Direction::Left => origin_container
+      .prev_siblings()
+      .find_map(|c| c.as_tiling_window().cloned()),
+    _ => origin_container
+      .next_siblings()
+      .find_map(|c| c.as_tiling_window().cloned()),
+  };
+
+  if let Some(target_window) = target {
+    let new_index = target_window.index();
+    set_focused_descendant(&target_window.clone().into(), None);
+    update_scroll_offset(&workspace, new_index)?;
+    state
+      .pending_sync
+      .queue_containers_to_redraw(workspace.tiling_children())
+      .queue_focus_change()
+      .queue_cursor_jump();
+  }
+
+  Ok(())
 }
