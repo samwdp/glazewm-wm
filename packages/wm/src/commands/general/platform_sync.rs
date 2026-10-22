@@ -175,6 +175,11 @@ fn redraw_containers(
   state: &mut WmState,
   config: &UserConfig,
 ) -> anyhow::Result<()> {
+  reconcile_scrolling_workspaces(state)?;
+  // Focus changes the scroll offset without otherwise queueing the
+  // columns. Draw them all so a column that scrolled into view is shown
+  // and one that scrolled out is hidden.
+  queue_scrolling_columns(state);
   let windows_to_redraw = state.windows_to_redraw();
   let windows_to_bring_to_front =
     windows_to_bring_to_front(focused_container, state)?;
@@ -266,10 +271,16 @@ fn redraw_containers(
       continue;
     }
 
+    // A scrolling column with no intersection is hidden even though its
+    // workspace is displayed. That keeps it off the adjacent monitor.
+    let column_visible =
+      crate::scrolling::column_in_view(window).unwrap_or(true);
+    let should_show = workspace.is_displayed() && column_visible;
+
     // Transition display state depending on whether window will be
     // shown or hidden.
     window.set_display_state(
-      match (window.display_state(), workspace.is_displayed()) {
+      match (window.display_state(), should_show) {
         (DisplayState::Hidden | DisplayState::Hiding, true) => {
           DisplayState::Showing
         }
@@ -335,6 +346,97 @@ fn redraw_containers(
   Ok(())
 }
 
+/// Where a scrolling column's frame should go, if this window is one.
+enum ScrollingFrame {
+  /// This window is not a scrolling column.
+  NotScrolling,
+  /// The column does not meet the view and was not given an off-screen
+  /// frame.
+  Hidden,
+  /// Frame to place. Border compensation is applied to the visible part
+  /// of the column, then clipped to the monitor.
+  Ready(Rect),
+}
+
+/// Visible frame of a scrolling column.
+///
+/// The column is cut to the workspace first, then border compensation is
+/// applied so the content meets the tile. The result is cut to the monitor
+/// so it cannot draw on the next screen.
+fn scrolling_frame(
+  window: &WindowContainer,
+  logical: &Rect,
+  is_visible: bool,
+  config: &UserConfig,
+) -> anyhow::Result<ScrollingFrame> {
+  if window.state() != WindowState::Tiling {
+    return Ok(ScrollingFrame::NotScrolling);
+  }
+
+  let Some(workspace) = window.workspace() else {
+    return Ok(ScrollingFrame::NotScrolling);
+  };
+
+  if workspace.layout() != wm_common::WorkspaceLayout::Scrolling {
+    return Ok(ScrollingFrame::NotScrolling);
+  }
+
+  let Some(visible) =
+    crate::scrolling::intersection(logical, &workspace.to_rect()?)
+  else {
+    return hide_offscreen_column(window, is_visible, config);
+  };
+
+  let framed = visible.apply_delta(&window.total_border_delta()?, None);
+  let monitor = window.monitor().context("No monitor.")?;
+  let Some(on_monitor) = crate::scrolling::intersection(
+    &framed,
+    &monitor.native_properties().bounds,
+  ) else {
+    return hide_offscreen_column(window, is_visible, config);
+  };
+
+  Ok(ScrollingFrame::Ready(on_monitor))
+}
+
+/// Hides a column that missed the view, without placing it off-screen.
+///
+/// `PlaceInCorner` keeps the existing corner path. A window that is still
+/// marked shown is left where it is, so a hide event cannot unmanage it.
+fn hide_offscreen_column(
+  window: &WindowContainer,
+  is_visible: bool,
+  config: &UserConfig,
+) -> anyhow::Result<ScrollingFrame> {
+  if !is_visible
+    && config.value.general.hide_method != HideMethod::PlaceInCorner
+  {
+    hide_without_placing(window, config)?;
+  }
+
+  if config.value.general.hide_method == HideMethod::PlaceInCorner
+    && !is_visible
+  {
+    return Ok(ScrollingFrame::NotScrolling);
+  }
+
+  Ok(ScrollingFrame::Hidden)
+}
+
+/// Queues every column so a scroll change repositions the whole strip.
+fn queue_scrolling_columns(state: &mut WmState) {
+  let columns = state
+    .workspaces()
+    .into_iter()
+    .filter(|workspace| {
+      workspace.layout() == wm_common::WorkspaceLayout::Scrolling
+    })
+    .flat_map(|workspace| workspace.tiling_children().collect::<Vec<_>>())
+    .collect::<Vec<_>>();
+
+  state.pending_sync.queue_containers_to_redraw(columns);
+}
+
 fn reposition_window(
   window: &WindowContainer,
   hide_corner: HideCorner,
@@ -344,9 +446,14 @@ fn reposition_window(
   is_visible: bool,
   config: &UserConfig,
 ) -> anyhow::Result<()> {
-  let rect = window
-    .to_rect()?
-    .apply_delta(&window.total_border_delta()?, None);
+  let logical = window.to_rect()?;
+  let rect = match scrolling_frame(window, &logical, is_visible, config)? {
+    ScrollingFrame::Ready(rect) => rect,
+    ScrollingFrame::Hidden => return Ok(()),
+    ScrollingFrame::NotScrolling => {
+      logical.apply_delta(&window.total_border_delta()?, None)
+    }
+  };
 
   // For `HideMethod::PlaceInCorner`, we need to reposition hidden windows
   // to the corner of the monitor.
@@ -466,6 +573,51 @@ fn reposition_window(
         window.native().hide()?;
       }
     }
+  }
+
+  Ok(())
+}
+
+/// Hides a column that does not intersect the view, without moving it
+/// onto the neighboring monitor.
+fn hide_without_placing(
+  window: &WindowContainer,
+  config: &UserConfig,
+) -> anyhow::Result<()> {
+  #[cfg(target_os = "windows")]
+  {
+    if config.value.general.hide_method == HideMethod::Cloak {
+      window.native().set_cloaked(true)?;
+    } else if config.value.general.hide_method != HideMethod::PlaceInCorner
+    {
+      window.native().hide()?;
+    }
+  }
+
+  #[cfg(target_os = "macos")]
+  {
+    let _ = config;
+    let _ = window;
+  }
+
+  Ok(())
+}
+
+fn reconcile_scrolling_workspaces(state: &WmState) -> anyhow::Result<()> {
+  for workspace in state.workspaces() {
+    if workspace.layout() != wm_common::WorkspaceLayout::Scrolling {
+      continue;
+    }
+
+    let focused_column = state.focused_container().and_then(|container| {
+      let window = container.as_tiling_window()?;
+      window
+        .workspace()
+        .is_some_and(|candidate| candidate.id() == workspace.id())
+        .then_some(window.id())
+    });
+
+    crate::scrolling::reconcile(&workspace, focused_column)?;
   }
 
   Ok(())

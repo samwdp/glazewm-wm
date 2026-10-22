@@ -636,9 +636,21 @@ impl WmState {
     origin_container
       .descendants()
       .filter(|descendant| {
-        descendant
-          .to_rect()
-          .is_ok_and(|rect| rect.contains_point(point))
+        let Ok(rect) = descendant.to_rect() else {
+          return false;
+        };
+
+        let rect = descendant
+          .as_tiling_window()
+          .and_then(CommonGetters::workspace)
+          .filter(|workspace| {
+            workspace.layout() == wm_common::WorkspaceLayout::Scrolling
+          })
+          .and_then(|workspace| workspace.to_rect().ok())
+          .and_then(|view| crate::scrolling::intersection(&rect, &view))
+          .unwrap_or(rect);
+
+        rect.contains_point(point)
       })
       .collect()
   }

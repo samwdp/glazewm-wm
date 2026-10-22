@@ -1,5 +1,5 @@
 use anyhow::Context;
-use wm_common::WindowState;
+use wm_common::{WindowState, WorkspaceLayout};
 use wm_platform::{LengthValue, Rect};
 
 use crate::{
@@ -64,6 +64,33 @@ fn set_tiling_window_length(
   is_width_resize: bool,
   state: &mut WmState,
 ) -> anyhow::Result<()> {
+  if let Some(workspace) = window
+    .workspace()
+    .filter(|workspace| workspace.layout() == WorkspaceLayout::Scrolling)
+  {
+    // Columns fill the workspace height. Only width is a proportion.
+    if !is_width_resize {
+      return Ok(());
+    }
+
+    let view_width = workspace.to_rect()?.width();
+    let (inner_gap, _) = window.inner_gaps()?;
+    let target_px = target_length.to_px(view_width, None);
+    let proportion = crate::scrolling::proportion_for_width(
+      target_px, view_width, inner_gap,
+    );
+
+    crate::scrolling::preserve_view(&workspace, || {
+      window.set_tiling_size(proportion);
+      Ok(())
+    })?;
+
+    state
+      .pending_sync
+      .queue_containers_to_redraw(workspace.tiling_children());
+    return Ok(());
+  }
+
   // When resizing a tiling window, the container to resize can actually be
   // an ancestor split container.
   let container_to_resize = window.container_to_resize(is_width_resize)?;

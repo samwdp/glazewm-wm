@@ -1,5 +1,5 @@
 use anyhow::Context;
-use wm_common::{TilingDirection, WmEvent};
+use wm_common::{TilingDirection, WmEvent, WorkspaceLayout};
 
 use super::{flatten_split_container, wrap_in_split_container};
 use crate::{
@@ -14,6 +14,12 @@ pub fn toggle_tiling_direction(
   state: &mut WmState,
   config: &UserConfig,
 ) -> anyhow::Result<()> {
+  if container.workspace().is_some_and(|workspace| {
+    workspace.layout() == WorkspaceLayout::Scrolling
+  }) {
+    return Ok(());
+  }
+
   let direction_container = match container {
     Container::TilingWindow(tiling_window) => {
       toggle_window_direction(tiling_window, config)

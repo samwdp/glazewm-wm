@@ -241,6 +241,7 @@ impl Workspace {
       display_name,
       bind_to_monitor: None,
       keep_alive: false,
+      layout: wm_common::WorkspaceLayout::Split,
     };
 
     let workspace = Self::new(config, gaps_config, tiling_direction);

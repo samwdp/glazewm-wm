@@ -7,7 +7,8 @@ use std::{
 use anyhow::Context;
 use uuid::Uuid;
 use wm_common::{
-  ContainerDto, GapsConfig, TilingDirection, WorkspaceConfig, WorkspaceDto,
+  ContainerDto, GapsConfig, TilingDirection, WorkspaceConfig,
+  WorkspaceDto, WorkspaceLayout,
 };
 use wm_platform::{Rect, RectDelta};
 
@@ -32,6 +33,10 @@ struct WorkspaceInner {
   config: WorkspaceConfig,
   gaps_config: GapsConfig,
   tiling_direction: TilingDirection,
+  /// Pixels from the left of the strip to the left of the view.
+  scroll_offset: i32,
+  /// Workspace width used when `scroll_offset` was last scaled.
+  scroll_basis_width: i32,
 }
 
 impl Workspace {
@@ -48,6 +53,8 @@ impl Workspace {
       config,
       gaps_config,
       tiling_direction,
+      scroll_offset: 0,
+      scroll_basis_width: 0,
     };
 
     Self(Rc::new(RefCell::new(workspace)))
@@ -61,6 +68,41 @@ impl Workspace {
   /// Update the underlying config for the workspace.
   pub fn set_config(&self, config: WorkspaceConfig) {
     self.0.borrow_mut().config = config;
+  }
+
+  /// Layout this workspace uses for its tiling windows.
+  pub fn layout(&self) -> WorkspaceLayout {
+    self.0.borrow().config.layout
+  }
+
+  /// Sets the layout stored on the workspace config.
+  pub fn set_layout(&self, layout: WorkspaceLayout) {
+    self.0.borrow_mut().config.layout = layout;
+  }
+
+  /// Gap config currently applied to the workspace.
+  pub fn gaps_config(&self) -> GapsConfig {
+    self.0.borrow().gaps_config.clone()
+  }
+
+  /// Pixels from the left of the strip to the left of the view.
+  pub fn scroll_offset(&self) -> i32 {
+    self.0.borrow().scroll_offset
+  }
+
+  /// Sets the strip scroll offset in pixels.
+  pub fn set_scroll_offset(&self, offset: i32) {
+    self.0.borrow_mut().scroll_offset = offset;
+  }
+
+  /// Workspace width that `scroll_offset` was scaled against.
+  pub fn scroll_basis_width(&self) -> i32 {
+    self.0.borrow().scroll_basis_width
+  }
+
+  /// Records the workspace width that `scroll_offset` is scaled against.
+  pub fn set_scroll_basis_width(&self, width: i32) {
+    self.0.borrow_mut().scroll_basis_width = width;
   }
 
   /// Whether the workspace is currently displayed by the parent monitor.
@@ -173,6 +215,8 @@ impl Workspace {
       x: rect.x(),
       y: rect.y(),
       tiling_direction: self.tiling_direction(),
+      layout: self.layout(),
+      scroll_offset: self.scroll_offset(),
     }))
   }
 }

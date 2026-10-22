@@ -1,6 +1,8 @@
 use anyhow::Context;
 use tracing::info;
-use wm_common::{try_warn, WindowRuleEvent, WindowState, WmEvent};
+use wm_common::{
+  try_warn, WindowRuleEvent, WindowState, WmEvent, WorkspaceLayout,
+};
 use wm_platform::{NativeWindow, RectDelta};
 
 use crate::{
@@ -12,7 +14,9 @@ use crate::{
     Container, Monitor, NativeWindowProperties, NonTilingWindow,
     TilingWindow, WindowContainer,
   },
-  traits::{CommonGetters, PositionGetters, WindowGetters},
+  traits::{
+    CommonGetters, PositionGetters, TilingSizeGetters, WindowGetters,
+  },
   user_config::UserConfig,
   wm_state::WmState,
 };
@@ -178,6 +182,8 @@ fn create_window(
 
   let target_workspace =
     target_parent.workspace().context("No target workspace.")?;
+  let creates_column = window_state == WindowState::Tiling
+    && target_workspace.layout() == WorkspaceLayout::Scrolling;
 
   let prefers_centered = config
     .value
@@ -241,6 +247,12 @@ fn create_window(
     )
     .into(),
   };
+
+  if creates_column {
+    if let WindowContainer::TilingWindow(window) = &window_container {
+      window.set_tiling_size(crate::scrolling::DEFAULT_COLUMN_PROPORTION);
+    }
+  }
 
   attach_container(
     &window_container.clone().into(),

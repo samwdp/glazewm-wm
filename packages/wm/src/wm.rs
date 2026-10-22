@@ -32,7 +32,7 @@ use crate::{
     },
     workspace::{
       focus_workspace, move_workspace_in_direction,
-      update_workspace_config,
+      toggle_workspace_layout, update_workspace_config,
     },
   },
   events::{
@@ -731,6 +731,11 @@ impl WindowManager {
           }
           _ => Ok(()),
         }
+      }
+      InvokeCommand::ToggleLayout => {
+        let workspace =
+          subject_container.workspace().context("No workspace.")?;
+        toggle_workspace_layout(&workspace, state)
       }
       InvokeCommand::ToggleTilingDirection => {
         toggle_tiling_direction(subject_container, state, config)

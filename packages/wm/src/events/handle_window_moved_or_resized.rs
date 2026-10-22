@@ -267,7 +267,13 @@ pub fn handle_window_moved_or_resized(
     };
 
     // Handle a window being maximized or entering fullscreen.
-    if is_maximized || should_fullscreen {
+    // A scrolling column stays tiling. The window manager placed that
+    // frame, and covering the view is not a fullscreen request.
+    if promotes_to_fullscreen(
+      is_scrolling_column(&window),
+      is_maximized,
+      should_fullscreen,
+    ) {
       let is_same_state = is_maximized
         && matches!(
           window.state(),
@@ -539,11 +545,32 @@ fn is_in_corner(window_frame: &Rect, monitor_rect: &Rect) -> bool {
   (is_left_corner || is_right_corner) && is_bottom_of_monitor
 }
 
+/// Whether this tiling window is a column on a scrolling workspace.
+fn is_scrolling_column(window: &WindowContainer) -> bool {
+  window.state() == WindowState::Tiling
+    && window.workspace().is_some_and(|workspace| {
+      workspace.layout() == wm_common::WorkspaceLayout::Scrolling
+    })
+}
+
+/// Whether a move or resize should take the window fullscreen.
+///
+/// A scrolling column stays tiling. Its frame fills the workspace height
+/// and can cover the view, because the window manager placed that frame.
+/// Fullscreen on a scrolling workspace comes from `set-fullscreen`.
+fn promotes_to_fullscreen(
+  scrolling_column: bool,
+  is_maximized: bool,
+  frame_covers_workspace: bool,
+) -> bool {
+  !scrolling_column && (is_maximized || frame_covers_workspace)
+}
+
 #[cfg(test)]
 mod tests {
   use wm_platform::Rect;
 
-  use super::is_in_corner;
+  use super::{is_in_corner, promotes_to_fullscreen};
 
   #[test]
   fn matches_corner_positions() {
@@ -562,5 +589,12 @@ mod tests {
     let frame = Rect::from_xy(100, 100, 800, 600);
 
     assert!(!is_in_corner(&frame, &monitor));
+  }
+
+  #[test]
+  fn scrolling_column_move_does_not_enter_fullscreen() {
+    assert!(!promotes_to_fullscreen(true, true, true));
+    assert!(promotes_to_fullscreen(false, true, false));
+    assert!(promotes_to_fullscreen(false, false, true));
   }
 }

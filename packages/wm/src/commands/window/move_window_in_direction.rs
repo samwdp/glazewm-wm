@@ -1,5 +1,5 @@
 use anyhow::Context;
-use wm_common::{TilingDirection, WindowState};
+use wm_common::{TilingDirection, WindowState, WorkspaceLayout};
 use wm_platform::{Direction, Rect};
 
 use crate::{
@@ -54,6 +54,12 @@ fn move_tiling_window(
   state: &mut WmState,
   config: &UserConfig,
 ) -> anyhow::Result<()> {
+  if window_to_move.workspace().is_some_and(|workspace| {
+    workspace.layout() == WorkspaceLayout::Scrolling
+  }) {
+    return move_scrolling_column(window_to_move, direction, state);
+  }
+
   // Flatten the parent split container if it only contains the window.
   if let Some(split_parent) = window_to_move
     .parent()
@@ -124,6 +130,44 @@ fn move_tiling_window(
       state,
     ),
   }
+}
+
+/// Moves a column along the strip. Up and down leave the workspace.
+fn move_scrolling_column(
+  window_to_move: TilingWindow,
+  direction: &Direction,
+  state: &mut WmState,
+) -> anyhow::Result<()> {
+  let neighbor = match direction {
+    Direction::Left => window_to_move
+      .prev_siblings()
+      .find_map(|sibling| sibling.as_tiling_window().cloned()),
+    Direction::Right => window_to_move
+      .next_siblings()
+      .find_map(|sibling| sibling.as_tiling_window().cloned()),
+    Direction::Up | Direction::Down => None,
+  };
+
+  let Some(neighbor) = neighbor else {
+    return move_to_workspace_in_direction(
+      &window_to_move.into(),
+      direction,
+      state,
+    );
+  };
+
+  let parent = window_to_move.parent().context("No parent.")?;
+  move_container_within_tree(
+    &window_to_move.clone().into(),
+    &parent,
+    neighbor.index(),
+    state,
+  )?;
+
+  state
+    .pending_sync
+    .queue_containers_to_redraw(parent.tiling_children());
+  Ok(())
 }
 
 /// Gets the next sibling `TilingWindow` or `SplitContainer` in the given

@@ -1,13 +1,20 @@
 use anyhow::Context;
 use tracing::{info, warn};
-use wm_common::WindowState;
+use uuid::Uuid;
+use wm_common::{WindowState, WorkspaceLayout};
 
 use crate::{
   commands::container::{
     move_container_within_tree, replace_container, resize_tiling_container,
   },
-  models::{Container, InsertionTarget, WindowContainer},
-  traits::{CommonGetters, TilingSizeGetters, WindowGetters},
+  models::{
+    Container, InsertionTarget, NonTilingWindow, TilingWindow,
+    WindowContainer, Workspace,
+  },
+  scrolling::{self, DEFAULT_COLUMN_PROPORTION},
+  traits::{
+    CommonGetters, TilingSizeGetters, WindowGetters, MIN_TILING_SIZE,
+  },
   user_config::UserConfig,
   wm_state::WmState,
 };
@@ -48,6 +55,10 @@ fn set_tiling(
 
   let workspace =
     window.workspace().context("Window has no workspace.")?;
+
+  if workspace.layout() == WorkspaceLayout::Scrolling {
+    return set_scrolling_column(&window, &workspace, state, config);
+  }
 
   // Check whether insertion target is still valid.
   let insertion_target =
@@ -164,6 +175,13 @@ fn set_non_tiling(
     WindowContainer::TilingWindow(window) => {
       let parent = window.parent().context("No parent")?;
 
+      let (left_column_id, right_column_id) =
+        if workspace.layout() == WorkspaceLayout::Scrolling {
+          column_neighbors(&window)
+        } else {
+          (None, None)
+        };
+
       let non_tiling_window = window.to_non_tiling(
         target_state.clone(),
         Some(InsertionTarget {
@@ -171,6 +189,8 @@ fn set_non_tiling(
           target_index: window.index(),
           prev_tiling_size: window.tiling_size(),
           prev_sibling_count: window.tiling_siblings().count(),
+          left_column_id,
+          right_column_id,
         }),
       );
 
@@ -200,4 +220,115 @@ fn set_non_tiling(
       Ok(non_tiling_window.into())
     }
   }
+}
+
+/// Returns a window to a scrolling strip at its saved place.
+fn set_scrolling_column(
+  window: &NonTilingWindow,
+  workspace: &Workspace,
+  state: &mut WmState,
+  config: &UserConfig,
+) -> anyhow::Result<WindowContainer> {
+  let saved = window.insertion_target().filter(|target| {
+    target
+      .target_parent
+      .workspace()
+      .is_some_and(|saved_workspace| {
+        saved_workspace.id() == workspace.id()
+      })
+  });
+
+  let proportion = saved
+    .as_ref()
+    .map_or(DEFAULT_COLUMN_PROPORTION, |target| target.prev_tiling_size)
+    .max(MIN_TILING_SIZE);
+  let left_column_id =
+    saved.as_ref().and_then(|target| target.left_column_id);
+  let right_column_id =
+    saved.as_ref().and_then(|target| target.right_column_id);
+
+  let tiling_window = window.to_tiling(config.value.gaps.clone());
+  tiling_window.set_tiling_size(proportion);
+
+  replace_container(
+    &tiling_window.clone().into(),
+    &workspace.clone().into(),
+    window.index(),
+  )?;
+
+  let target_index = scrolling_rejoin_index(
+    workspace,
+    tiling_window.id(),
+    tiling_window.index(),
+    left_column_id,
+    right_column_id,
+  );
+
+  if tiling_window.index() != target_index {
+    move_container_within_tree(
+      &tiling_window.clone().into(),
+      &workspace.clone().into(),
+      target_index,
+      state,
+    )?;
+  }
+
+  state
+    .pending_sync
+    .queue_containers_to_redraw(workspace.tiling_children())
+    .queue_workspace_to_reorder(workspace.clone());
+
+  Ok(tiling_window.into())
+}
+
+fn scrolling_rejoin_index(
+  workspace: &Workspace,
+  window_id: Uuid,
+  self_index: usize,
+  left_column_id: Option<Uuid>,
+  right_column_id: Option<Uuid>,
+) -> usize {
+  let children = workspace.children();
+
+  if let Some(right_column_id) = right_column_id {
+    if let Some(index) = children.iter().position(|child| {
+      child.id() == right_column_id && child.as_tiling_window().is_some()
+    }) {
+      return scrolling::shift_target_before(self_index, index);
+    }
+  }
+
+  if let Some(left_column_id) = left_column_id {
+    if let Some(index) = children.iter().position(|child| {
+      child.id() == left_column_id && child.as_tiling_window().is_some()
+    }) {
+      return scrolling::shift_target_after(index);
+    }
+  }
+
+  if let Some(recent) =
+    workspace.descendant_focus_order().find(|container| {
+      container.as_tiling_window().is_some() && container.id() != window_id
+    })
+  {
+    return scrolling::shift_target_after(recent.index());
+  }
+
+  self_index
+}
+
+/// Columns immediately beside a window on the strip.
+fn column_neighbors(
+  window: &TilingWindow,
+) -> (Option<Uuid>, Option<Uuid>) {
+  let left = window
+    .prev_siblings()
+    .find_map(|sibling| sibling.as_tiling_window().cloned())
+    .map(|column| column.id());
+  let right = window
+    .next_siblings()
+    .find_map(|sibling| sibling.as_tiling_window().cloned())
+    .map(|column| column.id());
+
+  (left, right)
 }

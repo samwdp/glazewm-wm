@@ -10,8 +10,30 @@ use crate::{
 ///
 /// If the container is a tiling container, the siblings will be resized to
 /// fill the freed up space. Will flatten empty parent split containers.
+/// A scrolling workspace keeps each remaining column's proportion.
 #[allow(clippy::needless_pass_by_value)]
 pub fn detach_container(child_to_remove: Container) -> anyhow::Result<()> {
+  let scrolling_parent =
+    crate::scrolling::scrolling_parent(&child_to_remove);
+  let keep_proportions = scrolling_parent.is_some();
+  let is_column = child_to_remove.as_tiling_window().is_some();
+
+  let detach = |child_to_remove: Container| -> anyhow::Result<()> {
+    detach_from_parent(child_to_remove, keep_proportions)
+  };
+
+  if let Some(workspace) = scrolling_parent.filter(|_| is_column) {
+    crate::scrolling::preserve_view(&workspace, || detach(child_to_remove))
+  } else {
+    detach(child_to_remove)
+  }
+}
+
+#[allow(clippy::needless_pass_by_value)]
+fn detach_from_parent(
+  child_to_remove: Container,
+  keep_column_proportions: bool,
+) -> anyhow::Result<()> {
   // Flatten the parent split container if it'll be empty after removing
   // the child.
   if let Some(split_parent) = child_to_remove
@@ -35,23 +57,26 @@ pub fn detach_container(child_to_remove: Container) -> anyhow::Result<()> {
 
   *child_to_remove.borrow_parent_mut() = None;
 
-  // Resize the siblings if it is a tiling container.
-  if let Ok(child_to_remove) = child_to_remove.as_tiling_container() {
-    let tiling_siblings = parent.tiling_children().collect::<Vec<_>>();
+  // Resize the siblings if it is a tiling container. Scrolling columns
+  // keep their own proportions.
+  if !keep_column_proportions {
+    if let Ok(child_to_remove) = child_to_remove.as_tiling_container() {
+      let tiling_siblings = parent.tiling_children().collect::<Vec<_>>();
 
-    // TODO: Share logic with `resize_tiling_container`.
-    let available_size =
-      tiling_siblings.iter().fold(0.0, |sum, container| {
-        sum + container.tiling_size() - MIN_TILING_SIZE
-      });
+      // TODO: Share logic with `resize_tiling_container`.
+      let available_size =
+        tiling_siblings.iter().fold(0.0, |sum, container| {
+          sum + container.tiling_size() - MIN_TILING_SIZE
+        });
 
-    // Adjust size of the siblings based on the freed up space.
-    for sibling in &tiling_siblings {
-      let resize_factor =
-        (sibling.tiling_size() - MIN_TILING_SIZE) / available_size;
+      // Adjust size of the siblings based on the freed up space.
+      for sibling in &tiling_siblings {
+        let resize_factor =
+          (sibling.tiling_size() - MIN_TILING_SIZE) / available_size;
 
-      let size_delta = resize_factor * child_to_remove.tiling_size();
-      sibling.set_tiling_size(sibling.tiling_size() + size_delta);
+        let size_delta = resize_factor * child_to_remove.tiling_size();
+        sibling.set_tiling_size(sibling.tiling_size() + size_delta);
+      }
     }
   }
 

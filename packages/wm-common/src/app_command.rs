@@ -231,6 +231,9 @@ pub enum InvokeCommand {
   ToggleMinimized,
   ToggleTiling,
   ToggleTilingDirection,
+  /// Switches the focused workspace between split layout and scrolling
+  /// layout.
+  ToggleLayout,
   SetTilingDirection {
     #[clap(required = true)]
     tiling_direction: TilingDirection,

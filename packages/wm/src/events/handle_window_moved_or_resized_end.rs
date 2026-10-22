@@ -15,7 +15,8 @@ use crate::{
     WindowContainer,
   },
   traits::{
-    CommonGetters, PositionGetters, TilingDirectionGetters, WindowGetters,
+    CommonGetters, PositionGetters, TilingDirectionGetters,
+    TilingSizeGetters, WindowGetters,
   },
   user_config::UserConfig,
   wm_state::WmState,
@@ -166,6 +167,16 @@ fn drop_as_tiling_window(
     .or_else(|| moved_window.workspace())
     .context("Couldn't find workspace for window drop.")?;
 
+  if mouse_workspace.layout() == wm_common::WorkspaceLayout::Scrolling {
+    return drop_on_scrolling_workspace(
+      moved_window,
+      &mouse_workspace,
+      mouse_pos.x,
+      state,
+      config,
+    );
+  }
+
   // Get the workspace, split containers, and other windows under the
   // dragged window.
   let containers_at_pos = state
@@ -282,6 +293,60 @@ fn drop_as_tiling_window(
   state.pending_sync.queue_container_to_redraw(target_parent);
 
   Ok(moved_window)
+}
+
+/// Drops a dragged window onto a scrolling workspace at the nearest column
+/// boundary.
+fn drop_on_scrolling_workspace(
+  moved_window: &NonTilingWindow,
+  workspace: &crate::models::Workspace,
+  cursor_x: i32,
+  state: &mut WmState,
+  config: &UserConfig,
+) -> anyhow::Result<WindowContainer> {
+  let rank = crate::scrolling::cursor_rank(workspace, cursor_x)?;
+  let proportion = moved_window
+    .insertion_target()
+    .map_or(crate::scrolling::DEFAULT_COLUMN_PROPORTION, |target| {
+      target.prev_tiling_size
+    })
+    .max(crate::traits::MIN_TILING_SIZE);
+
+  moved_window.set_insertion_target(None);
+
+  let window = update_window_state(
+    moved_window.clone().into(),
+    WindowState::Tiling,
+    state,
+    config,
+  )?;
+
+  if let Some(tiling_window) = window.as_tiling_window() {
+    tiling_window.set_tiling_size(proportion);
+  }
+
+  let moving_id = Some(window.id());
+  let same_parent = window
+    .parent()
+    .is_some_and(|parent| parent.id() == workspace.id());
+  let index = if same_parent {
+    crate::scrolling::child_index_for_rank(workspace, rank, moving_id)
+  } else {
+    crate::scrolling::child_index_for_rank(workspace, rank, None)
+  };
+
+  crate::commands::container::move_container_within_tree(
+    &window.clone().into(),
+    &workspace.clone().into(),
+    index,
+    state,
+  )?;
+
+  state
+    .pending_sync
+    .queue_containers_to_redraw(workspace.tiling_children());
+
+  Ok(window)
 }
 
 /// Represents where the window was dropped over another.

@@ -124,6 +124,15 @@ fn update_workspace_configs(
       }
       Some(workspace_config) => {
         if *workspace_config != workspace.config() {
+          let next_layout = workspace_config.layout;
+          if workspace.layout() != next_layout {
+            crate::commands::workspace::apply_workspace_layout(
+              workspace,
+              next_layout,
+              state,
+            )?;
+          }
+
           workspace.set_config(workspace_config.clone());
 
           sort_workspaces(&monitor, config)?;

@@ -50,12 +50,19 @@ pub fn replace_container(
     .shift_to_index(focus_index, replacement_container.id());
 
   // Match the tiling size of the replaced container if the replacement
-  // is also a tiling container.
+  // is also a tiling container. Scrolling columns do not share size with
+  // their siblings, so the proportion is assigned directly.
   if let Ok(tiling_size) = tiling_size {
     if let Ok(replacement_container) =
       replacement_container.as_tiling_container()
     {
-      resize_tiling_container(&replacement_container, tiling_size);
+      if target_parent.as_workspace().is_some_and(|workspace| {
+        workspace.layout() == wm_common::WorkspaceLayout::Scrolling
+      }) {
+        replacement_container.set_tiling_size(tiling_size);
+      } else {
+        resize_tiling_container(&replacement_container, tiling_size);
+      }
     }
   }
 

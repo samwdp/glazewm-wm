@@ -1,5 +1,5 @@
 use anyhow::Context;
-use wm_common::{TilingDirection, WindowState};
+use wm_common::{TilingDirection, WindowState, WorkspaceLayout};
 use wm_platform::Direction;
 
 use super::set_focused_descendant;
@@ -15,6 +15,13 @@ pub fn focus_in_direction(
   state: &mut WmState,
 ) -> anyhow::Result<()> {
   let focus_target = match origin_container {
+    Container::TilingWindow(_)
+      if origin_container.workspace().is_some_and(|workspace| {
+        workspace.layout() == WorkspaceLayout::Scrolling
+      }) =>
+    {
+      scrolling_focus_target(origin_container, direction, state)?
+    }
     Container::TilingWindow(_) => {
       // If a suitable focus target isn't found in the current workspace,
       // attempt to find a workspace in the given direction.
@@ -44,6 +51,14 @@ pub fn focus_in_direction(
   if let Some(focus_target) = focus_target {
     set_focused_descendant(&focus_target, None);
     state.pending_sync.queue_focus_change().queue_cursor_jump();
+
+    if let Some(workspace) = origin_container.workspace() {
+      if workspace.layout() == WorkspaceLayout::Scrolling {
+        state
+          .pending_sync
+          .queue_containers_to_redraw(workspace.tiling_children());
+      }
+    }
   }
 
   Ok(())
@@ -75,6 +90,28 @@ fn floating_focus_target(
     // Cannot focus vertically from a floating window.
     _ => None,
   }
+}
+
+/// Focus along a scrolling strip, then the monitor in that direction.
+fn scrolling_focus_target(
+  origin_container: &Container,
+  direction: &Direction,
+  state: &WmState,
+) -> anyhow::Result<Option<Container>> {
+  let neighbor = match direction {
+    Direction::Left => origin_container
+      .prev_siblings()
+      .find_map(|sibling| sibling.as_tiling_window().cloned()),
+    Direction::Right => origin_container
+      .next_siblings()
+      .find_map(|sibling| sibling.as_tiling_window().cloned()),
+    Direction::Up | Direction::Down => None,
+  };
+
+  neighbor.map_or_else(
+    || workspace_focus_target(origin_container, direction, state),
+    |window| Ok(Some(window.into())),
+  )
 }
 
 /// Gets a focus target within the current workspace. Traverse upwards from

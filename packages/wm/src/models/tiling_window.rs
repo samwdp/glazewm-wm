@@ -4,17 +4,15 @@ use std::{
   rc::Rc,
 };
 
-use anyhow::Context;
 use uuid::Uuid;
 use wm_common::{
-  ActiveDrag, ContainerDto, DisplayState, GapsConfig, TilingDirection,
-  WindowDto, WindowRuleConfig, WindowState,
+  ActiveDrag, ContainerDto, DisplayState, GapsConfig, WindowDto,
+  WindowRuleConfig, WindowState, WorkspaceLayout,
 };
 use wm_platform::{NativeWindow, Rect, RectDelta};
 
 use crate::{
-  impl_common_getters, impl_container_debug,
-  impl_position_getters_as_resizable, impl_tiling_size_getters,
+  impl_common_getters, impl_container_debug, impl_tiling_size_getters,
   impl_window_getters,
   models::{
     Container, DirectionContainer, InsertionTarget,
@@ -22,8 +20,7 @@ use crate::{
     WindowContainer,
   },
   traits::{
-    CommonGetters, PositionGetters, TilingDirectionGetters,
-    TilingSizeGetters, WindowGetters,
+    CommonGetters, PositionGetters, TilingSizeGetters, WindowGetters,
   },
 };
 
@@ -138,5 +135,15 @@ impl TilingWindow {
 impl_container_debug!(TilingWindow);
 impl_common_getters!(TilingWindow);
 impl_tiling_size_getters!(TilingWindow);
-impl_position_getters_as_resizable!(TilingWindow);
+impl PositionGetters for TilingWindow {
+  fn to_rect(&self) -> anyhow::Result<Rect> {
+    if self.workspace().is_some_and(|workspace| {
+      workspace.layout() == WorkspaceLayout::Scrolling
+    }) {
+      crate::scrolling::column_screen_rect(self)
+    } else {
+      crate::traits::resizable_to_rect(self)
+    }
+  }
+}
 impl_window_getters!(TilingWindow);

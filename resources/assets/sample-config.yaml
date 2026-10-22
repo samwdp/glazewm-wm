@@ -121,6 +121,10 @@ window_behavior:
       shown_on_top: false
 
 workspaces:
+  # `layout` is `split` (default) or `scrolling`. Scrolling arranges tiling
+  # windows as columns on a horizontal strip. `toggle-layout` switches the
+  # focused workspace. A new column is half the workspace wide. A window
+  # rule can set another opening width, for example `size --width 100%`.
   - name: '1'
   - name: '2'
   - name: '3'
@@ -132,6 +136,11 @@ workspaces:
   - name: '9'
 
 window_rules:
+  # Open matching apps at the full workspace width on a scrolling layout.
+  # - commands: ['size --width 100%']
+  #   match:
+  #     - window_process: { regex: 'volt|zen|outlook' }
+
   - commands: ['ignore']
     match:
       # Ignores any Zebar windows.
@@ -217,9 +226,13 @@ keybindings:
     bindings: ['alt+shift+p']
 
   # Change tiling direction. This determines where new tiling windows will
-  # be inserted.
+  # be inserted. On a scrolling workspace this command does nothing.
   - commands: ['toggle-tiling-direction']
     bindings: ['alt+v']
+
+  # Switch the focused workspace between split layout and scrolling layout.
+  # - commands: ['toggle-layout']
+  #   bindings: ['alt+shift+v']
 
   # Change focus from tiling windows -> floating -> fullscreen.
   - commands: ['wm-cycle-focus']

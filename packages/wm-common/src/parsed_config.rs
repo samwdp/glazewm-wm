@@ -372,6 +372,20 @@ pub enum WindowRuleEvent {
   TitleChange,
 }
 
+/// How a workspace arranges its tiling windows.
+#[derive(
+  Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkspaceLayout {
+  /// Tiling windows divide the workspace and together fill it.
+  #[default]
+  Split,
+
+  /// Tiling windows are columns on a horizontal strip.
+  Scrolling,
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all(serialize = "camelCase"))]
 pub struct WorkspaceConfig {
@@ -385,6 +399,10 @@ pub struct WorkspaceConfig {
 
   #[serde(default = "default_bool::<false>")]
   pub keep_alive: bool,
+
+  /// Layout used when the workspace is created, and on config reload.
+  #[serde(default)]
+  pub layout: WorkspaceLayout,
 }
 
 /// Helper function for setting a default value for a boolean field.
